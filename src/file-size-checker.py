@@ -2,67 +2,9 @@ import os
 import platform
 import re
 import requests
-
-def processFileDefinition(path):
-    separator = ""
-    #if platform.system() == "Windows":
-    #    path = path.replace("\\","\\\\")
-    
-    print("Path: "+path)
-    if isWildCardOnFileName(path):
-        basename = os.path.basename(path)
-        dirname = os.path.dirname(path)
-        #print(basename)
-        print("Dirname "+dirname)
-        os.listdir(dirname)
-        #print("")
-        
-        # do something
-    #else:
-        #do somrething else
-
-
-def isWildCardOnFileName(path):
-    separator = ""
-    if platform.system() == "Linux":
-        separator = "/"
-    else:
-        separator = "\\"
-    
-    split_path = path.split(separator)
-    file_name = split_path[len(split_path)-1]
-    
-    regex = "(^.*[*].*$)"
-    regex_result = re.search(regex, file_name)
-    
-    if regex_result:
-        return True
-    else:
-        return False
-
-def isPathGood(path):
-    status = False
-    if isWildCardOnDirectories(path) != True:
-  #      print("Wild card is good.")
-        status = True
-    if isAbsolutePath(path) == True:
- #       print("Absolute path is good")
-        status = True
-    return status
-
-def isWildCardOnDirectories(path):
-    regex = ""
-    if platform.system() == "Linux":
-        regex = "(^.*[*]{1,}.*/.*$)"
-    else:
-        regex = "(^.*[*]{1,}.*\\\\.*$)"
-
-#    print("Regex: "+ regex)
-    regex_result = re.search(regex, path)
-    if regex_result:
-        return True
-    else:
-        return False
+import time
+import sys
+from pathvalidate import ValidationError, validate_filename, validate_filepath, sanitize_filepath
     
 def isAbsolutePath(path):
     if platform.system() == "Linux":
@@ -76,30 +18,78 @@ def isAbsolutePath(path):
             return True
         else:
             return False
+def sendMetrics(filename, filesize):
+    url = ' http://localhost:14499/metrics/ingest'
+    payload = "custom.file.size,file_name="+filename+" "+str(filesize)
+    print(payload)
+    request_result = requests.post(url, data = payload)
+    print(request_result)
+
+def checkFileSizes(config_file):
+    f = open(config_file, "r")
+    for file_definition in f:
+        file_definition = file_definition.strip()
+        print("Checking ", file_definition, " size.")
+        file_size = os.path.getsize(sanitize_filepath(file_definition, platform = platform.system()).replace("\\\\","\\"))
+        print(file_definition, " size is :", file_size, "bytes")
+        sendMetrics(filename=file_definition, filesize=file_size)
+        
+def isConfigurationValid(config_file):
+    f = open(config_file, "r")
+    status = True
+    for file_definition in f:
+        file_definition = file_definition.strip()
+        try:
+            #validate_filename(file_definition)
+            validate_filepath(file_path = file_definition, platform = platform.system())
+            os.stat(file_definition)
+            print(file_definition," is valid.")
+            status = status*True
+        except ValidationError as e:
+            print(f"{e}\n", file=sys.stderr)
+            print("File "+file_definition+" is invalid for this OS.")
+            status = status*False
+        except FileNotFoundError as e:
+            print(f"{e}\n", file=sys.stderr)
+            print("File "+file_definition+" does not exist. Please check if the path is correct and if the file exists and has the right permissions.")
+            status = status*False
+    
+    if status == True:
+        print("All file definitions are valid, continuing...")
+    return status
 
 if (platform.system() != "Linux" and platform.system() != "Windows"):
     print("The platform you are running is not supported, please run this script on either a 'Windows' or 'Linux' system.")
     exit(1)
 
-f = open("file-size-checker.conf", "r")
-file_path = "file-size-checker.conf"
-file_size = os.path.getsize(file_path)
+
+config_file = "file-size-checker.conf"
 #creating an array that will hold all the files that need to be checked
-files_to_check = []
 
-for file_definition in f:
-    #print("File " + file_definition + " is valid?")
-    #print(str(isPathGood(file_definition)))
-    #processFileDefinition(file_definition)
-    print("File Size is :", file_size, "bytes")
-    url = ' http://localhost:14499/metrics/ingest'
-    payload = "custom.file.size,file_name="+os.path.basename(file_definition)+" "+str(file_size)
+if isConfigurationValid(config_file) == True:
+    checkFileSizes(config_file)
+    #print("Do something...")
 
-    request_result = requests.post(url, data = payload)
+    #while(True):
+    #    for file_definition in f:
+    #        print(file_definition)
+    #        try:
+    #            validate_filename(file_definition)
+    #            validate_filepath(file_definition)
+    #        except ValidationError as e:
+    #            print(f"{e}\n", file=sys.stderr)
 
-    #print(x.text)
+            
+                
+            
 
+            
+            
+            #print("File Size is :", file_size, "bytes")
+            
 
-
-#def isValidLine():
-
+            #print(x.text)
+    #    time.sleep(1)
+else:
+    print("Invalid configuration found, exiting....")
+    exit(1)
